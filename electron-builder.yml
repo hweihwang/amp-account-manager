@@ -1,0 +1,37 @@
+appId: com.hweihwang.amp-account-manager
+productName: Amp Account Manager
+directories:
+  output: release
+files:
+  - dist-electron/**
+  - dist/**
+  - build/icons/**
+  - build/icon.icns
+  - build/icon.png
+  - package.json
+  - node_modules/**
+asar: true
+mac:
+  artifactName: AmpAccountManager-mac-${arch}.${ext}
+  target:
+    - dmg
+    - zip
+  category: public.app-category.productivity
+  icon: build/icon.icns
+  notarize: true
+win:
+  artifactName: AmpAccountManager-win-${arch}.${ext}
+  target:
+    - nsis
+  icon: build/icon.ico
+linux:
+  artifactName: AmpAccountManager-linux-${arch}.${ext}
+  target:
+    - AppImage
+  category: Utility
+  icon: build/icon.png
+publish:
+  - provider: github
+    owner: hweihwang
+    repo: amp-account-manager
+    releaseType: release
