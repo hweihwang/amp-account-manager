@@ -17,7 +17,7 @@ mac:
     - zip
   category: public.app-category.productivity
   icon: build/icon.icns
-  notarize: true
+  # notarize: handled manually via notarytool in release skill (electron-builder notarize has TLS issues)
 win:
   artifactName: AmpAccountManager-win-${arch}.${ext}
   target:
