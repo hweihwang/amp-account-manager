@@ -486,63 +486,10 @@ function parseUsageOutput(output: string): UsageSnapshot {
 }
 
 /**
- * Parse the human-readable "last updated" string from the CLI thread list into
- * an approximate Unix-ms timestamp.  The CLI emits values like:
- *   "just now", "5 minutes ago", "2 hours ago", "yesterday", "Mar 1", "Jan 15 2024"
- * We convert each to a rough epoch value so that threads can be sorted against
- * one another (and against threads whose precise timestamp was pulled from their
- * markdown frontmatter).
- * The index `i` (position in the CLI output, 0 = most recent) is used as a
- * sub-second tiebreaker for entries that resolve to the same granularity bucket.
+ * Parse the thread list output from the CLI.
+ * Returns minimal records — just id, title, lastUpdated, visibility, messages.
+ * workspaceDir and precise updatedAtMs are filled in by enrichFromLocalFiles.
  */
-function parseLastUpdatedToMs(lastUpdated: string, i: number, now: number): number {
-  const s = lastUpdated.trim().toLowerCase();
-
-  // "just now" / "now"
-  if (s === "just now" || s === "now") return now - i;
-
-  // "yesterday"
-  if (s === "yesterday") return now - 86_400_000 - i;
-
-  // "today"
-  if (s === "today") return now - i;
-
-  // Relative "Nunit ago" — handles both abbreviated (s/m/h/d/w/mo/y) and
-  // full-word (second/minute/hour/day/week/month/year) forms.
-  // Examples: "2h ago", "23h ago", "7mo ago", "3 days ago", "1 month ago"
-  const relMatch = s.match(/^(\d+)\s*(s(?:ec(?:ond)?s?)?|m(?:in(?:ute)?s?|o(?:nth)?s?)?|h(?:r|our)?s?|d(?:ay)?s?|w(?:k|eek)?s?|y(?:r|ear)?s?)\s+ago$/);
-  if (relMatch) {
-    const n = parseInt(relMatch[1], 10);
-    const unit = relMatch[2];
-    let ms: number;
-    if (/^s/.test(unit)) ms = 1_000;
-    else if (/^mo/.test(unit)) ms = 30 * 86_400_000;
-    else if (/^m/.test(unit)) ms = 60_000;
-    else if (/^h/.test(unit)) ms = 3_600_000;
-    else if (/^d/.test(unit)) ms = 86_400_000;
-    else if (/^w/.test(unit)) ms = 7 * 86_400_000;
-    else if (/^y/.test(unit)) ms = 365 * 86_400_000;
-    else ms = 86_400_000;
-    return now - n * ms - i;
-  }
-
-  // "Mon Mar 1" or "Mar 1" or "Mar 1 2024" (with optional day-of-week prefix)
-  // Strip a leading day-of-week word if present (e.g. "Mon", "Tuesday")
-  const stripped = s.replace(/^(?:mon|tue|wed|thu|fri|sat|sun)\w*[,\s]+/i, "").trim();
-  // Try parsing as a date string; append current year if no year present
-  const hasYear = /\d{4}/.test(stripped);
-  const dateToParse = hasYear ? stripped : `${stripped} ${new Date(now).getFullYear()}`;
-  const parsed = Date.parse(dateToParse);
-  if (!Number.isNaN(parsed)) {
-    // If the parsed date is in the future (year rollover edge case), subtract one year
-    const ts = parsed > now ? parsed - 365 * 86_400_000 : parsed;
-    return ts - i;
-  }
-
-  // Fallback: preserve CLI order with descending fake timestamps
-  return now - i * 1000;
-}
-
 function parseThreadsListOutput(output: string): ThreadRecord[] {
   const lines = output.split(/\n+/);
   const records: ThreadRecord[] = [];
@@ -554,104 +501,63 @@ function parseThreadsListOutput(output: string): ThreadRecord[] {
 
     const id = idMatch[1];
     const left = line.slice(0, idMatch.index).trimEnd();
-    const cells = left.split(/\s{2,}/).map((entry) => entry.trim()).filter(Boolean);
+    const cells = left.split(/\s{2,}/).map((s) => s.trim()).filter(Boolean);
     if (cells.length < 4) continue;
 
     const messagesRaw = cells[cells.length - 1];
     const visibility = cells[cells.length - 2];
     const lastUpdated = cells[cells.length - 3];
     const title = cells.slice(0, cells.length - 3).join(" ");
-    const messages = Number.parseInt(messagesRaw, 10);
 
     records.push({
       id,
       title,
       lastUpdated,
       visibility,
-      messages: Number.isFinite(messages) ? messages : 0,
+      messages: Number.isFinite(Number.parseInt(messagesRaw, 10)) ? Number.parseInt(messagesRaw, 10) : 0,
       updatedAtMs: 0,
     });
   }
 
-  // Convert the human-readable lastUpdated string into a real approximate timestamp
-  // so that threads (and their groups) sort correctly relative to each other even
-  // after markdown enrichment replaces some records with precise frontmatter dates.
-  const now = Date.now();
+  // Assign descending fake timestamps to preserve CLI order as a fallback
+  // before local-file enrichment provides real dates.
+  const base = Date.now();
   for (let i = 0; i < records.length; i++) {
-    records[i].updatedAtMs = parseLastUpdatedToMs(records[i].lastUpdated, i, now);
+    records[i].updatedAtMs = base - i * 1000;
   }
 
   return records;
 }
 
 /**
- * Extract the full thread title and workspace directory from the markdown
- * frontmatter + first few lines of content. Only the opening bytes are needed
- * so we bail out early via a lightweight regex on the raw output.
+ * Enrich thread records with precise updatedAt timestamps and workspaceDir
+ * by reading the local amp thread JSON files at ~/.local/share/amp/threads/.
+ * These files are written by the amp CLI/IDE and contain the IDE workspace
+ * trees (env.initial.trees[].displayName) — the exact project folder name.
  */
-function extractMarkdownMeta(raw: string): { fullTitle?: string; workspaceDir?: string; updatedAtMs?: number } {
-  // Pull title from YAML frontmatter: `title: ...`
-  const titleMatch = raw.match(/^---[\s\S]*?^title:\s*(.+)/m);
-  const fullTitle = titleMatch ? titleMatch[1].trim() : undefined;
-
-  // Parse the real updatedAt ISO timestamp from frontmatter if present
-  const updatedAtMatch = raw.match(/^updatedAt:\s*(.+)/m);
-  const updatedAtMs = updatedAtMatch
-    ? (Date.parse(updatedAtMatch[1].trim()) || undefined)
-    : undefined;
-
-  // Extract workspace dir from the first absolute path that looks like a project root.
-  const pathMatch = raw.match(/(?:\/Users\/[^/\s]+|\/home\/[^/\s]+)\/(?:Projects|dev|src|code|work|repos?|workspace)[^/\s]*\/([A-Za-z0-9_.\-]+)/i);
-  const workspaceDir = pathMatch ? pathMatch[1] : undefined;
-
-  return { fullTitle, workspaceDir, updatedAtMs };
-}
-
-/**
- * Enrich thread records by fetching markdown for:
- *   - Threads with truncated titles (ends with "...") → recover full title + workspaceDir
- *   - Threads without a workspaceDir yet → recover workspaceDir
- * All fetches run in parallel with a concurrency cap.
- */
-async function enrichThreadRecords(
-  account: StoredAccount,
-  records: ThreadRecord[],
-): Promise<ThreadRecord[]> {
-  // Fetch markdown for any thread that needs its title untruncated OR workspaceDir resolved
-  const needsEnrich = records.filter((r) => r.title.endsWith("...") || !r.workspaceDir);
-  if (needsEnrich.length === 0) return records;
-
-  const CONCURRENCY = 5;
-  const enriched = new Map<string, { fullTitle?: string; workspaceDir?: string; updatedAtMs?: number }>();
-
-  // Process in batches of CONCURRENCY
-  for (let i = 0; i < needsEnrich.length; i += CONCURRENCY) {
-    const batch = needsEnrich.slice(i, i + CONCURRENCY);
-    await Promise.all(
-      batch.map(async (rec) => {
-        try {
-          const result = await runAmp(account, ["threads", "markdown", rec.id], 30_000);
-          if (result.code === 0) {
-            // Only parse the first 2 KB — we just need the frontmatter + a few content lines
-            const preview = result.stdout.slice(0, 2048);
-            enriched.set(rec.id, extractMarkdownMeta(preview));
-          }
-        } catch {
-          // Silently skip — fall back to existing values
-        }
-      }),
-    );
-  }
+function enrichFromLocalFiles(records: ThreadRecord[]): ThreadRecord[] {
+  const threadsDir = path.join(
+    process.env.HOME ?? process.env.USERPROFILE ?? "",
+    ".local", "share", "amp", "threads",
+  );
 
   return records.map((rec) => {
-    const meta = enriched.get(rec.id);
-    if (!meta) return rec;
-    return {
-      ...rec,
-      title: meta.fullTitle ?? rec.title,
-      workspaceDir: meta.workspaceDir ?? rec.workspaceDir,
-      updatedAtMs: meta.updatedAtMs ?? rec.updatedAtMs,
-    };
+    try {
+      const raw = fs.readFileSync(path.join(threadsDir, `${rec.id}.json`), "utf8");
+      const data = JSON.parse(raw);
+
+      const updatedAt: string = data.updatedAt ?? data.created ?? "";
+      const updatedAtMs = updatedAt ? (Date.parse(updatedAt) || rec.updatedAtMs) : rec.updatedAtMs;
+
+      const trees: Array<{ displayName?: string }> = data.env?.initial?.trees ?? [];
+      const workspaceDir = trees[0]?.displayName ?? rec.workspaceDir;
+
+      const title: string = data.title ?? rec.title;
+
+      return { ...rec, title, updatedAtMs, workspaceDir };
+    } catch {
+      return rec;
+    }
   });
 }
 
@@ -966,9 +872,9 @@ app.whenReady().then(() => {
     const account = getStoredAccountOrThrow(accountId);
     const result = await runAmp(account, ["threads", "list", "--include-archived"]);
     const cleaned = ensureSuccess(result, "List threads");
+    // CLI gives the account-scoped list; local files give workspaceDir + precise timestamps
     const records = parseThreadsListOutput(cleaned);
-    // Enrich truncated titles and infer workspace dirs in the background
-    return enrichThreadRecords(account, records);
+    return enrichFromLocalFiles(records);
   });
 
   ipcMain.handle("threads:markdown", async (_event, payload: { accountId: string; threadId: string }): Promise<string> => {

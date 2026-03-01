@@ -40,9 +40,8 @@ function inferProjectGroup(thread: ThreadRecord): string {
   const slashMatch = title.match(/^([A-Za-z0-9_.\-]+\/[A-Za-z0-9_.\-]+)/);
   if (slashMatch) return slashMatch[1].trim();
 
-  // No project context — use the thread id so it stands alone rather than
-  // lumping unrelated threads into a generic "Other" bucket
-  return thread.id;
+  // No project context — use the thread title so it sorts naturally
+  return thread.title || thread.id;
 }
 
 function usageFraction(usage: UsageSnapshot | undefined): number {
@@ -867,8 +866,6 @@ export default function App() {
                   groupedView.map(({ group, threads: groupThreads }) => {
                     const isCollapsed = !isSearching && collapsedGroups.has(group);
                     const isSingleGroup = groupedView.length === 1;
-                    // When the group key is a thread ID (no project resolved), display the thread title
-                    const groupLabel = group.startsWith("T-") ? groupThreads[0]?.title ?? group : group;
                     return (
                       <div key={group || "__search__"} className="thread-group">
                         {/* Group header — hidden when there's only one group (single-project account or search results) */}
@@ -879,7 +876,7 @@ export default function App() {
                             title={isCollapsed ? "Expand" : "Collapse"}
                           >
                             <ChevronIcon collapsed={isCollapsed} />
-                            <span className="thread-group-name">{groupLabel}</span>
+                            <span className="thread-group-name">{group}</span>
                             <span className="thread-group-count">{groupThreads.length}</span>
                           </button>
                         )}
