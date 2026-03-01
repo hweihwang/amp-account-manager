@@ -26,7 +26,7 @@ npm run dist       # build + package locally (unsigned)
 
 ## Release
 Use the release skill: in Claude Code, just ask to release the app.
-See `.claude/skills/release.md` for full details.
+The skill is globally registered as `amp-account-manager-release`.
 
 ## Env vars
 - `AMP_MANAGER_WORKSPACE_ROOT` — override default workspace root for Amp commands

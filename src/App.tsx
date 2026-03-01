@@ -521,7 +521,7 @@ export default function App() {
               <rect x="328" y="358" width="18" height="28" rx="9" fill="white" opacity="0.55"/>
             </svg>
           </div>
-          <span className="brand-name">Amp Manager</span>
+          <span className="brand-name">Amp Account Manager</span>
         </div>
 
         <div className="topbar-divider" aria-hidden="true" />
