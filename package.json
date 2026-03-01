@@ -1,6 +1,6 @@
 {
   "name": "amp-account-manager",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": false,
   "description": "Desktop account manager and thread handoff assistant for Amp CLI.",
   "author": {
@@ -28,7 +28,7 @@
     "start": "cross-env NODE_ENV=production electron .",
     "typecheck": "tsc --noEmit",
     "rebuild": "npx @electron/rebuild",
-    "release:builder": "electron-builder --config electron-builder.yml --mac --arm64 --publish always",
+    "release:builder": "electron-builder --config electron-builder.yml --mac zip --linux AppImage --arm64 --x64 --publish always",
     "release:clear-notes": "node scripts/clear-github-release-notes.js",
     "release:cleanup": "node scripts/cleanup-github-releases.js",
     "homebrew:cask": "node scripts/generate-homebrew-cask.js",
