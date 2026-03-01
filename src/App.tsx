@@ -81,7 +81,8 @@ export default function App() {
   const [usageByAccount, setUsageByAccount] = useState<Record<string, UsageSnapshot>>({});
   const [usageLoadingIds, setUsageLoadingIds] = useState<Set<string>>(new Set());
 
-  const [activeAccountId, setActiveAccountId] = useState("");
+  const [activeAccountId, setActiveAccountId] = useState("");   // shell-synced active account
+  const [browsedAccountId, setBrowsedAccountId] = useState(""); // account whose threads are shown in pane 2/3
   const [threadsOwnerAccountId, setThreadsOwnerAccountId] = useState("");
   const [threads, setThreads] = useState<ThreadRecord[]>([]);
   const [threadFilter, setThreadFilter] = useState("");
@@ -178,6 +179,7 @@ export default function App() {
   // ── thread context reset ───────────────────────────────────────────────────
 
   function resetThreadContext(): void {
+    setBrowsedAccountId("");
     setThreads([]);
     setThreadsOwnerAccountId("");
     setThreadFilter("");
@@ -209,6 +211,10 @@ export default function App() {
         nextAccounts[0].id;
 
       setActiveAccountId(resolvedId);
+      // Seed the browsed account to the active one if nothing is browsed yet
+      setBrowsedAccountId((cur) =>
+        cur && nextAccounts.some((a) => a.id === cur) ? cur : resolvedId
+      );
     } catch (error) {
       if (!silent) showNotice("error", toErrorMessage(error));
     }
@@ -279,12 +285,12 @@ export default function App() {
     }
   }
 
-  // Auto-load threads whenever the active account changes
+  // Auto-load threads whenever the browsed account changes
   useEffect(() => {
-    if (!activeAccountId) return;
-    void loadThreads(activeAccountId, true);
+    if (!browsedAccountId) return;
+    void loadThreads(browsedAccountId, true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeAccountId]);
+  }, [browsedAccountId]);
 
   // Auto-load usage for all accounts once on startup (silently, in parallel)
   const usageBootstrappedRef = useRef(false);
@@ -316,9 +322,9 @@ export default function App() {
 
   // Auto-fetch markdown when thread is selected
   useEffect(() => {
-    if (!selectedThreadId || !activeAccountId) return;
-    void loadThreadMarkdown(activeAccountId, selectedThreadId);
-  }, [selectedThreadId, activeAccountId, loadThreadMarkdown]);
+    if (!selectedThreadId || !browsedAccountId) return;
+    void loadThreadMarkdown(browsedAccountId, selectedThreadId);
+  }, [selectedThreadId, browsedAccountId, loadThreadMarkdown]);
 
   // ── activate account ──────────────────────────────────────────────────────
 
@@ -327,6 +333,7 @@ export default function App() {
     if (accountId === activeAccountId) return;
 
     setActiveAccountId(accountId);
+    setBrowsedAccountId(accountId);
     // Sync the active account's API key to ~/.zshrc so `amp` CLI in the
     // terminal automatically picks up the right account.
     try {
@@ -438,6 +445,9 @@ export default function App() {
         const remaining = await window.ampManager.accounts.list();
         if (remaining[0]) await activateAccount(remaining[0].id);
         else { setActiveAccountId(""); resetThreadContext(); }
+      } else if (browsedAccountId === account.id) {
+        // Was browsing deleted account but it wasn't active — just stop browsing it
+        setBrowsedAccountId(activeAccountId);
       }
       showNotice("info", `Removed: ${account.email}`);
     } catch (error) {
@@ -449,8 +459,8 @@ export default function App() {
 
   // ── render ────────────────────────────────────────────────────────────────
 
-  const threadsLoaded = threadsOwnerAccountId === activeAccountId;
-  const threadsLoading = busyKey === `threads-${activeAccountId}`;
+  const threadsLoaded = threadsOwnerAccountId === browsedAccountId;
+  const threadsLoading = busyKey === `threads-${browsedAccountId}`;
   const usageLoading = busyKey === `usage-${activeAccountId}` || busyKey === "usage-all";
 
   return (
@@ -712,6 +722,7 @@ export default function App() {
             {accounts.map((account) => {
               const usage = usageByAccount[account.id];
               const isActive = account.id === activeAccountId;
+              const isBrowsed = account.id === browsedAccountId;
               const fraction = usageFraction(usage);
               const barColor = usageColor(fraction);
               const isLoadingUsage = usageLoadingIds.has(account.id);
@@ -721,12 +732,11 @@ export default function App() {
               return (
                 <div
                   key={account.id}
-                  className={`account-card ${isActive ? "account-card--active" : ""}`}
-                  onClick={() => void activateAccount(account.id)}
+                  className={`account-card ${isBrowsed ? "account-card--browsed" : ""} ${isActive ? "account-card--active" : ""}`}
+                  onClick={() => setBrowsedAccountId(account.id)}
                   role="button"
                   tabIndex={0}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") void activateAccount(account.id); }}
-                  aria-pressed={isActive}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setBrowsedAccountId(account.id); }}
                 >
                   <div className="account-card-top">
                     <div className="account-card-left">
@@ -751,9 +761,6 @@ export default function App() {
                     </div>
                     {isActive && (
                       <span className="account-active-badge">Active</span>
-                    )}
-                    {isActivating && (
-                      <span className="account-switching-badge">Switching…</span>
                     )}
                   </div>
 
@@ -782,6 +789,16 @@ export default function App() {
                   )}
 
                   <div className="account-card-actions" onClick={(e) => e.stopPropagation()}>
+                    {!isActive && (
+                      <button
+                        className="btn btn-ghost btn-xs account-switch-btn"
+                        onClick={() => void activateAccount(account.id)}
+                        disabled={isActivating}
+                        title="Switch to this account"
+                      >
+                        {isActivating ? "Switching…" : "Switch"}
+                      </button>
+                    )}
                     <button
                       className="btn btn-ghost btn-xs"
                       onClick={() => void loadUsage(account.id, false)}
@@ -821,15 +838,15 @@ export default function App() {
             )}
             <button
               className="btn btn-ghost btn-xs ml-auto"
-              onClick={() => void loadThreads(activeAccountId, false)}
-              disabled={!activeAccountId || threadsLoading}
+              onClick={() => void loadThreads(browsedAccountId, false)}
+              disabled={!browsedAccountId || threadsLoading}
               title="Reload threads"
             >
               <RefreshIcon spinning={threadsLoading} />
             </button>
           </div>
 
-          {!activeAccountId ? (
+          {!browsedAccountId ? (
             <div className="empty-state">
               <p>Select an account to view threads.</p>
             </div>

@@ -300,12 +300,10 @@ button, input, select, textarea { font: inherit; }
   transition:
     border-color 0.14s var(--ease),
     background 0.14s var(--ease),
-    box-shadow 0.14s var(--ease),
-    transform 0.12s var(--ease);
+    box-shadow 0.14s var(--ease);
   display: flex;
   flex-direction: column;
   gap: 9px;
-  outline: none;
   box-shadow: var(--shadow-xs);
 }
 
@@ -313,12 +311,17 @@ button, input, select, textarea { font: inherit; }
   border-color: var(--border-2);
   background: var(--bg-panel);
   box-shadow: var(--shadow-sm);
-  transform: translateY(-1px);
 }
 
 .account-card:focus-visible {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+  outline: none;
+}
+
+.account-card--browsed {
+  border-color: var(--border-2);
+  background: var(--bg-hover, rgba(255,255,255,0.04));
 }
 
 .account-card--active {
@@ -474,7 +477,23 @@ button, input, select, textarea { font: inherit; }
 }
 
 .account-card:hover .account-card-actions,
+.account-card--browsed .account-card-actions,
 .account-card--active .account-card-actions { opacity: 1; }
+
+.account-switch-btn {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  color: var(--accent);
+  border: 1px solid rgba(99,102,241,0.35);
+  border-radius: var(--radius-sm);
+  margin-right: 3px;
+}
+.account-switch-btn:hover:not(:disabled) {
+  background: rgba(99,102,241,0.1);
+  border-color: var(--accent);
+}
 
 /* ─── pane 2: threads ─────────────────────────────────────────────────────── */
 .pane-threads {
