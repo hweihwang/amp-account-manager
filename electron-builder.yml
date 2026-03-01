@@ -14,7 +14,6 @@ asar: true
 mac:
   artifactName: AmpAccountManager-mac-${arch}.${ext}
   target:
-    - dmg
     - zip
   category: public.app-category.productivity
   icon: build/icon.icns
