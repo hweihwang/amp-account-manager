@@ -3,6 +3,7 @@ import type {
   AmpAccount,
   AmpAccountUpsertPayload,
   AmpPreloadApi,
+  DoctorCheck,
   ThreadRecord,
   UsageSnapshot,
 } from "../shared/ipc";
@@ -24,6 +25,12 @@ const api: AmpPreloadApi = {
     getActiveId(): Promise<string | null> {
       return ipcRenderer.invoke("accounts:getActiveId");
     },
+    loginWithBrowser(): Promise<AmpAccount> {
+      return ipcRenderer.invoke("accounts:loginWithBrowser");
+    },
+    cancelBrowserLogin(): Promise<void> {
+      return ipcRenderer.invoke("accounts:cancelBrowserLogin");
+    },
   },
   usage: {
     get(accountId: string): Promise<UsageSnapshot> {
@@ -41,6 +48,11 @@ const api: AmpPreloadApi = {
   app: {
     openExternal(url: string): Promise<void> {
       return ipcRenderer.invoke("app:openExternal", url);
+    },
+  },
+  doctor: {
+    run(): Promise<DoctorCheck[]> {
+      return ipcRenderer.invoke("doctor:run");
     },
   },
 };

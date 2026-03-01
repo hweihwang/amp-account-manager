@@ -1,7 +1,6 @@
 export type AmpAccount = {
   id: string;
-  label: string;
-  ampUrl: string | null;
+  email: string;
   createdAt: number;
   updatedAt: number;
   hasApiKey: boolean;
@@ -9,9 +8,8 @@ export type AmpAccount = {
 
 export type AmpAccountUpsertPayload = {
   id?: string;
-  label: string;
+  email?: string;
   apiKey?: string;
-  ampUrl?: string | null;
 };
 
 export type UsageSnapshot = {
@@ -36,6 +34,14 @@ export type ThreadRecord = {
   workspaceDir?: string;
 };
 
+export type DoctorCheck = {
+  id: string;
+  label: string;
+  status: "pass" | "fail" | "warn";
+  message: string;
+  fix?: string;
+};
+
 export type AmpPreloadApi = {
   accounts: {
     list(): Promise<AmpAccount[]>;
@@ -43,6 +49,8 @@ export type AmpPreloadApi = {
     remove(accountId: string): Promise<void>;
     activate(accountId: string): Promise<void>;
     getActiveId(): Promise<string | null>;
+    loginWithBrowser(): Promise<AmpAccount>;
+    cancelBrowserLogin(): Promise<void>;
   };
   usage: {
     get(accountId: string): Promise<UsageSnapshot>;
@@ -53,5 +61,8 @@ export type AmpPreloadApi = {
   };
   app: {
     openExternal(url: string): Promise<void>;
+  };
+  doctor: {
+    run(): Promise<DoctorCheck[]>;
   };
 };

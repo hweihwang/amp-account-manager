@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AmpAccount,
+  DoctorCheck,
   ThreadRecord,
   UsageSnapshot,
 } from "../shared/ipc";
@@ -39,7 +40,9 @@ function inferProjectGroup(thread: ThreadRecord): string {
   const slashMatch = title.match(/^([A-Za-z0-9_.\-]+\/[A-Za-z0-9_.\-]+)/);
   if (slashMatch) return slashMatch[1].trim();
 
-  return "Other";
+  // No project context — use the thread id so it stands alone rather than
+  // lumping unrelated threads into a generic "Other" bucket
+  return thread.id;
 }
 
 function usageFraction(usage: UsageSnapshot | undefined): number {
@@ -89,12 +92,16 @@ export default function App() {
   const [threadMarkdown, setThreadMarkdown] = useState("");
   const [threadMarkdownLoading, setThreadMarkdownLoading] = useState(false);
 
+  // Doctor state
+  const [doctorOpen, setDoctorOpen] = useState(false);
+  const [doctorChecks, setDoctorChecks] = useState<DoctorCheck[]>([]);
+  const [doctorLoading, setDoctorLoading] = useState(false);
+
   // Drawer state
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingAccountId, setEditingAccountId] = useState("");
-  const [accountLabel, setAccountLabel] = useState("");
   const [accountApiKey, setAccountApiKey] = useState("");
-  const [accountAmpUrl, setAccountAmpUrl] = useState("");
+  const [loginMode, setLoginMode] = useState<"browser" | "manual">("browser");
 
   // Groups that the user has manually collapsed
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -117,10 +124,8 @@ export default function App() {
     for (const items of map.values()) {
       items.sort((a, b) => b.updatedAtMs - a.updatedAtMs);
     }
-    // Sort groups by their most-recently-updated thread; "Other" always last
+    // Sort groups by their most-recently-updated thread
     return [...map.entries()].sort((a, b) => {
-      if (a[0] === "Other") return 1;
-      if (b[0] === "Other") return -1;
       return b[1][0].updatedAtMs - a[1][0].updatedAtMs;
     });
   }, [threads]);
@@ -345,50 +350,81 @@ export default function App() {
       .catch((error) => showNotice("error", toErrorMessage(error)));
   }
 
+  // ── doctor ────────────────────────────────────────────────────────────────
+
+  async function runDoctor(): Promise<void> {
+    setDoctorOpen(true);
+    setDoctorLoading(true);
+    try {
+      const checks = await window.ampManager.doctor.run();
+      setDoctorChecks(checks);
+    } catch (error) {
+      showNotice("error", toErrorMessage(error));
+    } finally {
+      setDoctorLoading(false);
+    }
+  }
+
   // ── account form ──────────────────────────────────────────────────────────
 
   function openAddDrawer() {
     setEditingAccountId("");
-    setAccountLabel("");
     setAccountApiKey("");
-    setAccountAmpUrl("");
+    setLoginMode("browser");
     setDrawerOpen(true);
   }
 
   function openEditDrawer(account: AmpAccount) {
     setEditingAccountId(account.id);
-    setAccountLabel(account.label);
-    setAccountAmpUrl(account.ampUrl ?? "");
     setAccountApiKey("");
+    setLoginMode("manual");
     setDrawerOpen(true);
   }
 
   function closeDrawer() {
+    // Cancel any in-flight browser login
+    if (busyKey === "account-browser-login") {
+      void window.ampManager.accounts.cancelBrowserLogin();
+    }
     setDrawerOpen(false);
     setEditingAccountId("");
-    setAccountLabel("");
     setAccountApiKey("");
-    setAccountAmpUrl("");
+    setLoginMode("browser");
+    setBusyKey("");
   }
 
   async function onSaveAccount(event: FormEvent): Promise<void> {
     event.preventDefault();
-    if (!accountLabel.trim()) { showNotice("error", "Label is required."); return; }
-    if (!editingAccountId && !accountApiKey.trim()) { showNotice("error", "API key is required for new accounts."); return; }
+    if (!editingAccountId && !accountApiKey.trim()) { showNotice("error", "API key is required."); return; }
     setBusyKey("account-save");
     try {
       const saved = await window.ampManager.accounts.upsert({
         id: editingAccountId || undefined,
-        label: accountLabel.trim(),
-        apiKey: accountApiKey.trim(),
-        ampUrl: accountAmpUrl.trim() || null,
+        apiKey: accountApiKey.trim() || undefined,
       });
       closeDrawer();
       await refreshAccounts(true);
       await activateAccount(saved.id);
-      showNotice("success", `${editingAccountId ? "Updated" : "Added"} account: ${saved.label}`);
+      showNotice("success", `${editingAccountId ? "Updated" : "Added"} account: ${saved.email}`);
     } catch (error) {
       showNotice("error", toErrorMessage(error));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function onLoginWithBrowser(): Promise<void> {
+    setBusyKey("account-browser-login");
+    try {
+      const saved = await window.ampManager.accounts.loginWithBrowser();
+      closeDrawer();
+      await refreshAccounts(true);
+      await activateAccount(saved.id);
+      showNotice("success", `Logged in as ${saved.email}`);
+    } catch (error) {
+      // Don't show error toast if user intentionally cancelled
+      const msg = toErrorMessage(error);
+      if (msg !== "Login cancelled.") showNotice("error", msg);
     } finally {
       setBusyKey("");
     }
@@ -404,7 +440,7 @@ export default function App() {
         if (remaining[0]) await activateAccount(remaining[0].id);
         else { setActiveAccountId(""); resetThreadContext(); }
       }
-      showNotice("info", `Removed: ${account.label}`);
+      showNotice("info", `Removed: ${account.email}`);
     } catch (error) {
       showNotice("error", toErrorMessage(error));
     } finally {
@@ -434,56 +470,143 @@ export default function App() {
             </div>
 
             <form className="drawer-form" onSubmit={(e) => void onSaveAccount(e)}>
-              <div className="field">
-                <label className="field-label">Label</label>
-                <input
-                  className="field-input"
-                  value={accountLabel}
-                  onChange={(e) => setAccountLabel(e.target.value)}
-                  placeholder="e.g. Work Account"
-                  autoFocus
-                />
-              </div>
+              {!editingAccountId && (
+                <div className="login-mode-tabs">
+                  <button
+                    type="button"
+                    className={`login-mode-tab${loginMode === "browser" ? " login-mode-tab--active" : ""}`}
+                    onClick={() => setLoginMode("browser")}
+                    disabled={busyKey === "account-browser-login"}
+                  >
+                    Login with Browser
+                  </button>
+                  <button
+                    type="button"
+                    className={`login-mode-tab${loginMode === "manual" ? " login-mode-tab--active" : ""}`}
+                    onClick={() => setLoginMode("manual")}
+                    disabled={busyKey === "account-browser-login"}
+                  >
+                    Enter API Key
+                  </button>
+                </div>
+              )}
 
-              <div className="field">
-                <label className="field-label">
-                  API Key
-                  {editingAccountId && (
-                    <span className="field-hint"> — leave blank to keep existing</span>
-                  )}
-                </label>
-                <input
-                  className="field-input"
-                  value={accountApiKey}
-                  onChange={(e) => setAccountApiKey(e.target.value)}
-                  placeholder={editingAccountId ? "Leave blank to keep current key" : "amp_..."}
-                  type="password"
-                  autoComplete="off"
-                />
-              </div>
+              {loginMode === "manual" && (
+                <div className="field">
+                  <label className="field-label">
+                    API Key
+                    {editingAccountId && (
+                      <span className="field-hint"> — leave blank to keep existing</span>
+                    )}
+                  </label>
+                  <input
+                    className="field-input"
+                    value={accountApiKey}
+                    onChange={(e) => setAccountApiKey(e.target.value)}
+                    placeholder={editingAccountId ? "Leave blank to keep current key" : "sgamp_user_..."}
+                    type="password"
+                    autoComplete="off"
+                    autoFocus
+                  />
+                </div>
+              )}
 
-              <div className="field">
-                <label className="field-label">
-                  Amp URL
-                  <span className="field-hint"> — optional, defaults to ampcode.com</span>
-                </label>
-                <input
-                  className="field-input"
-                  value={accountAmpUrl}
-                  onChange={(e) => setAccountAmpUrl(e.target.value)}
-                  placeholder="https://ampcode.com"
-                />
-              </div>
+              {loginMode === "browser" && !editingAccountId && (
+                busyKey === "account-browser-login" ? (
+                  <div className="browser-login-waiting">
+                    <Spinner />
+                    <span>Waiting for browser login…</span>
+                  </div>
+                ) : (
+                  <div className="browser-login-info">
+                    <p>Your browser will open to ampcode.com to sign in. Your account will be identified by your email.</p>
+                  </div>
+                )
+              )}
 
               <div className="drawer-footer">
-                <button type="button" className="btn btn-ghost" onClick={closeDrawer}>
-                  Cancel
-                </button>
-                <button className="btn btn-primary" type="submit" disabled={busyKey === "account-save"}>
-                  {busyKey === "account-save" ? "Saving…" : editingAccountId ? "Save Changes" : "Add Account"}
-                </button>
+                {busyKey === "account-browser-login" ? (
+                  <button type="button" className="btn btn-ghost" onClick={closeDrawer}>
+                    Cancel Login
+                  </button>
+                ) : (
+                  <button type="button" className="btn btn-ghost" onClick={closeDrawer}>
+                    Cancel
+                  </button>
+                )}
+                {loginMode === "browser" && !editingAccountId ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => void onLoginWithBrowser()}
+                    disabled={busyKey === "account-browser-login"}
+                  >
+                    {busyKey === "account-browser-login" ? "Waiting…" : "Open Browser to Login"}
+                  </button>
+                ) : (
+                  <button className="btn btn-primary" type="submit" disabled={busyKey === "account-save"}>
+                    {busyKey === "account-save" ? "Saving…" : editingAccountId ? "Save Changes" : "Add Account"}
+                  </button>
+                )}
               </div>
             </form>
+          </aside>
+        </div>
+      )}
+
+      {/* ── DOCTOR OVERLAY ────────────────────────────────────────────── */}
+      {doctorOpen && (
+        <div className="drawer-overlay" onClick={() => setDoctorOpen(false)}>
+          <aside className="doctor-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="drawer-header">
+              <span className="drawer-title">System Doctor</span>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <button
+                  className="btn btn-ghost btn-xs"
+                  onClick={() => void runDoctor()}
+                  disabled={doctorLoading}
+                  title="Re-run checks"
+                >
+                  <RefreshIcon spinning={doctorLoading} />
+                </button>
+                <button className="icon-btn" onClick={() => setDoctorOpen(false)} aria-label="Close">
+                  <CloseIcon />
+                </button>
+              </div>
+            </div>
+
+            <div className="doctor-body">
+              {doctorLoading && doctorChecks.length === 0 ? (
+                <div className="loading-state">
+                  <Spinner />
+                  <span>Running diagnostics…</span>
+                </div>
+              ) : (
+                <div className="doctor-checks">
+                  {doctorChecks.map((check) => (
+                    <div key={check.id} className={`doctor-check doctor-check--${check.status}`}>
+                      <span className="doctor-check-icon">
+                        {check.status === "pass" ? "✓" : check.status === "fail" ? "✗" : "⚠"}
+                      </span>
+                      <div className="doctor-check-content">
+                        <div className="doctor-check-label">{check.label}</div>
+                        <div className="doctor-check-message">{check.message}</div>
+                        {check.fix && (
+                          <div className="doctor-check-fix">
+                            <strong>Fix:</strong> {check.fix}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {doctorChecks.length > 0 && !doctorChecks.some((c) => c.status === "fail") && (
+                    <div className="doctor-all-good">
+                      All checks passed — your system is ready to go.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </aside>
         </div>
       )}
@@ -530,10 +653,7 @@ export default function App() {
           {activeAccount ? (
             <>
               <span className={`status-dot ${activeUsage ? "status-ok" : "status-idle"}`} />
-              <span className="topbar-active-label">{activeAccount.label}</span>
-              {activeUsage?.signedInAs && (
-                <span className="topbar-active-email">{activeUsage.signedInAs}</span>
-              )}
+              <span className="topbar-active-label">{activeAccount.email}</span>
               {activeUsage && (
                 <span className="topbar-active-balance">
                   {formatMoney(activeUsage.ampFreeRemaining)} free
@@ -546,6 +666,14 @@ export default function App() {
         </div>
 
         <div className="topbar-actions">
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => void runDoctor()}
+            title="Run system diagnostics"
+          >
+            <DoctorIcon />
+            Doctor
+          </button>
           <button
             className="btn btn-ghost btn-sm"
             onClick={() => void refreshAllUsage()}
@@ -604,18 +732,21 @@ export default function App() {
                   <div className="account-card-top">
                     <div className="account-card-left">
                       <div className="account-avatar" style={{ background: avatarColor(account.id) }}>
-                        {account.label.charAt(0).toUpperCase()}
+                        {account.email.charAt(0).toUpperCase()}
                       </div>
                       <div className="account-info">
-                        <span className="account-label">{account.label}</span>
-                        {usage?.signedInAs && (
-                          <span className="account-email">{usage.signedInAs}</span>
-                        )}
-                        {!usage && isLoadingUsage && (
-                          <span className="account-no-usage account-no-usage--loading">Loading usage…</span>
-                        )}
-                        {!usage && !isLoadingUsage && (
-                          <span className="account-no-usage">Usage not loaded</span>
+                        {usage?.signedInAs ? (
+                          <span className="account-label">{usage.signedInAs}</span>
+                        ) : (
+                          <>
+                            <span className="account-label">{account.email}</span>
+                            {isLoadingUsage && (
+                              <span className="account-no-usage account-no-usage--loading">Loading…</span>
+                            )}
+                            {!isLoadingUsage && (
+                              <span className="account-no-usage">Usage not loaded</span>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -736,6 +867,8 @@ export default function App() {
                   groupedView.map(({ group, threads: groupThreads }) => {
                     const isCollapsed = !isSearching && collapsedGroups.has(group);
                     const isSingleGroup = groupedView.length === 1;
+                    // When the group key is a thread ID (no project resolved), display the thread title
+                    const groupLabel = group.startsWith("T-") ? groupThreads[0]?.title ?? group : group;
                     return (
                       <div key={group || "__search__"} className="thread-group">
                         {/* Group header — hidden when there's only one group (single-project account or search results) */}
@@ -746,7 +879,7 @@ export default function App() {
                             title={isCollapsed ? "Expand" : "Collapse"}
                           >
                             <ChevronIcon collapsed={isCollapsed} />
-                            <span className="thread-group-name">{group}</span>
+                            <span className="thread-group-name">{groupLabel}</span>
                             <span className="thread-group-count">{groupThreads.length}</span>
                           </button>
                         )}
@@ -875,6 +1008,15 @@ export default function App() {
 }
 
 // ─── icons (inline SVG, no deps) ─────────────────────────────────────────────
+
+function DoctorIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+      <path d="M6.5 1v4M6.5 5h-2a1 1 0 00-1 1v1.5a3 3 0 006 0V6a1 1 0 00-1-1h-2z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4.5 1v2h4V1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 function PlusIcon() {
   return (

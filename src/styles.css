@@ -171,13 +171,7 @@ button, input, select, textarea { font: inherit; }
 }
 
 .topbar-active-email {
-  font-size: 11.5px;
-  color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  border-left: 1px solid var(--border-1);
-  padding-left: 7px;
+  display: none;
 }
 
 .topbar-active-balance {
@@ -380,11 +374,7 @@ button, input, select, textarea { font: inherit; }
 }
 
 .account-email {
-  font-size: 11px;
-  color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: none;
 }
 
 .account-no-usage {
@@ -942,6 +932,66 @@ button, input, select, textarea { font: inherit; }
   padding-top: 18px;
 }
 
+/* ─── login mode tabs ─────────────────────────────────────────────────────── */
+.login-mode-tabs {
+  display: flex;
+  border: 1.5px solid var(--border-1);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-base);
+}
+
+.login-mode-tab {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-2);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s;
+  border-radius: 0;
+}
+
+.login-mode-tab:hover:not(.login-mode-tab--active) {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.login-mode-tab--active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ─── browser login info ──────────────────────────────────────────────────── */
+.browser-login-info {
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-panel));
+  border: 1.5px solid color-mix(in srgb, var(--accent) 20%, var(--border-1));
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+
+.browser-login-info p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.browser-login-waiting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-panel));
+  border: 1.5px solid color-mix(in srgb, var(--accent) 20%, var(--border-1));
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
 /* ─── form fields ─────────────────────────────────────────────────────────── */
 .field {
   display: flex;
@@ -1179,4 +1229,104 @@ button, input, select, textarea { font: inherit; }
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+/* ─── doctor panel ─────────────────────────────────────────────────────────── */
+
+.doctor-panel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 520px;
+  max-height: 80vh;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  animation: drawer-in 0.22s var(--ease);
+}
+
+.doctor-body {
+  padding: 16px 20px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.doctor-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.doctor-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-1);
+  background: var(--bg-panel-2);
+}
+
+.doctor-check--pass { border-left: 3px solid var(--status-success); }
+.doctor-check--fail { border-left: 3px solid var(--status-error); background: var(--status-error-bg); }
+.doctor-check--warn { border-left: 3px solid var(--status-warn); background: var(--status-warn-bg); }
+
+.doctor-check-icon {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  margin-top: 1px;
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+}
+
+.doctor-check--pass .doctor-check-icon { color: var(--status-success); }
+.doctor-check--fail .doctor-check-icon { color: var(--status-error); }
+.doctor-check--warn .doctor-check-icon { color: var(--status-warn); }
+
+.doctor-check-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.doctor-check-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.doctor-check-message {
+  font-size: 12px;
+  color: var(--text-2);
+  margin-top: 2px;
+  word-break: break-all;
+}
+
+.doctor-check-fix {
+  font-size: 11.5px;
+  color: var(--text-2);
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  line-height: 1.5;
+}
+
+.doctor-check-fix strong {
+  color: var(--text-1);
+  font-family: var(--font);
+}
+
+.doctor-all-good {
+  text-align: center;
+  padding: 14px;
+  font-size: 13px;
+  color: var(--status-success);
+  font-weight: 500;
 }

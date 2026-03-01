@@ -1,6 +1,6 @@
 cask "amp-account-manager" do
-  version "0.1.2"
-  sha256 "c029c19bec237cadea2e9e6584e0abb0c692fc5da55dc1cfdafc7733213f1b15"
+  version "0.1.3"
+  sha256 "4bf70f54769f57de9adea9e64fea7b7c88f702828d13378c7ed846e790a56978"
 
   url "https://github.com/hweihwang/amp-account-manager/releases/download/v#{version}/AmpAccountManager-mac-arm64.dmg"
   name "Amp Account Manager"
